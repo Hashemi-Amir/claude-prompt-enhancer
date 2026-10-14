@@ -31,7 +31,7 @@ The questions are just as strict. The mod asks only about gaps where a wrong gue
 
 ## Install
 
-You need Claude Code with plugin support. The mod was built and tested on Claude Code 2.1.299. Mods are an early-access feature, so a much older version may not load it.
+You need Claude Code with plugin support. The mod is tested on Claude Code 2.1.295 (the build Claude Desktop runs) and 2.1.299. Mods are an early-access feature, so an older version may not load it.
 
 **In a Claude Code terminal session**, type:
 
@@ -138,12 +138,12 @@ claude plugin marketplace remove prompt-enhancer
   marketplace.json   makes this repository installable
 hooks/
   hooks.json         names the hooks module
-  register.tsx       wiring: /enhance, prompt interception, pane, close
-  flow.ts            the steps, model calls, run/cancel/history
+  register.tsx       everything that talks to Claude Code: /enhance, interception,
+                     the steps, model calls, run/cancel/history, drawing the pane
   llm.ts             the two system prompts and reply parsing
   check.ts           the "Not from you" check
   intercept.ts       which prompts automatic mode catches
-  view.tsx           drawing the pane
+  look.ts            colours and small drawing helpers
 types/index.d.ts     the mod's state contract
 tests/               claude plugin test suites
 ```
@@ -153,6 +153,8 @@ Run a working copy without installing it:
 ```bash
 claude --plugin-dir ./
 ```
+
+Every function that receives `$` lives in `register.tsx`. Claude Code 2.1.295 follows `$` only into functions declared in the same file as the hook, so passing it into another file stops the mod from loading there.
 
 Before you commit, check it:
 
