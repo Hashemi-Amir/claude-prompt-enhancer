@@ -1,0 +1,15 @@
+{
+  "name": "prompt-enhancer",
+  "description": "Prompt Enhancer: sharpen a prompt before it is sent, using only your words and answers.",
+  "owner": {
+    "name": "Amir Hashemi",
+    "url": "https://github.com/Hashemi-Amir"
+  },
+  "plugins": [
+    {
+      "name": "prompt-enhancer",
+      "source": "./",
+      "description": "Asks a few quick questions when they help, rewrites your prompt using only your words and answers, and waits for you to press Run."
+    }
+  ]
+}

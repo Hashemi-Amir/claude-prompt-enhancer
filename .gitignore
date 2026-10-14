@@ -1,0 +1,8 @@
+# Written by Claude Code each time it loads the mod from a folder it watches
+.claude-plugin/types/
+
+# Editor and OS clutter
+.DS_Store
+*.log
+.mcpb-cache/
+node_modules/

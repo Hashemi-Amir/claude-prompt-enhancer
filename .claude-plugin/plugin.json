@@ -1,0 +1,33 @@
+{
+  "name": "prompt-enhancer",
+  "displayName": "Prompt Enhancer",
+  "version": "0.1.0",
+  "description": "Sharpens a rough prompt before it is sent: asks a few quick questions when they help, rewrites it using only your words and answers, and waits for you to press Run.",
+  "author": {
+    "name": "Amir Hashemi",
+    "url": "https://github.com/Hashemi-Amir"
+  },
+  "homepage": "https://github.com/Hashemi-Amir/claude-prompt-enhancer#readme",
+  "repository": "https://github.com/Hashemi-Amir/claude-prompt-enhancer",
+  "license": "MIT",
+  "keywords": [
+    "prompt",
+    "prompt-engineering",
+    "clarifying-questions",
+    "rewrite",
+    "mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "The model that asks the questions and writes the rewrite. haiku is fast and cheap; sonnet is slower and more careful.",
+      "default": "haiku",
+      "options": [
+        "haiku",
+        "sonnet"
+      ]
+    }
+  }
+}
