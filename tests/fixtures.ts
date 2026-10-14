@@ -45,7 +45,7 @@ export type World = {
   copies: string[]
   commands: string[]
   /** Every model request, in order. */
-  calls: { system: string; prompt: string }[]
+  calls: { model: string; system: string; prompt: string }[]
   /** Replies the fake model gives, in order; a string is a text reply, `null` an API error. */
   replies: (string | null)[]
   unplaced: boolean
@@ -97,7 +97,7 @@ export function worldOf(on: On): World {
     return { isFilled: true } as never
   })
   on('model.complete', ($, e) => {
-    world.calls.push({ system: e.system ?? '', prompt: e.prompt })
+    world.calls.push({ model: e.model, system: e.system ?? '', prompt: e.prompt })
     const reply = world.replies.shift()
 
     if (reply === undefined || reply === null) {

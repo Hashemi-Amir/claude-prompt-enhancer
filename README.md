@@ -23,11 +23,11 @@ Claude follows prompts literally, so anything a rewriter adds becomes an instruc
 
 The rule is enforced in three places:
 
-1. **The model's instructions.** They allow fixing typos, reordering what you said and working in your answers. They forbid adding anything.
+1. **The model's instructions.** They always fix spelling and grammar, allow smoothing a clumsy sentence, reordering what you said and working in your answers. They forbid adding anything: no new reason, time, condition or detail.
 2. **A "Not from you" check.** Plain code flags any number, name, file path, URL, identifier or quoted text in the rewrite that you never typed or picked, and shows it in amber before you run.
 3. **You.** The review screen shows both versions side by side, and nothing is sent until you choose.
 
-The questions are just as strict. The mod asks only about gaps where a wrong guess would send Claude off to do noticeably different work. It doesn't ask about anything Claude can find out by reading your project. For a clear prompt it asks nothing.
+The questions are just as strict. The mod asks only about gaps where a wrong guess would send Claude off to do noticeably different work, such as what a vague verb like "improve" or "clean up" should mean. It doesn't ask about anything Claude can find out by reading your project, and it never asks what "it" or "this" refers to, because Claude already sees your conversation and the mod doesn't. For a clear prompt it asks nothing.
 
 ## Install
 
@@ -102,13 +102,14 @@ Start a prompt with `>` to send it as typed; the `>` is removed.
 
 | Setting | Values | Default |
 | --- | --- | --- |
-| `model` | `haiku` (fast, cheap) or `sonnet` (slower, smoother wording) | `haiku` |
+| `questionsModel` | `haiku` asks fewer, better-aimed questions; `sonnet` asks more | `haiku` |
+| `rewriteModel` | `sonnet` fixes grammar and reads most naturally; `haiku` is faster and stays closest to your exact words | `sonnet` |
 
-Change it in `/config`, or with `/plugin configure prompt-enhancer@prompt-enhancer`.
+Change them in `/config`, or with `/plugin configure prompt-enhancer@prompt-enhancer`.
 
 ## Cost and privacy
 
-- Each enhancement makes up to two short model calls on your own Claude account: one for the questions and one for the rewrite. A reply that can't be read is retried once.
+- Each enhancement makes up to two short model calls on your own Claude account: one for the questions (Haiku by default) and one for the rewrite (Sonnet by default). A reply that can't be read is retried once.
 - The mod sees only the prompt you're enhancing, not your conversation or your files.
 - History stays on your machine, in the mod's own store under `~/.claude/plugins/store/`. `/enhance history clear` empties it. If that store can't be read or written, the mod says so once and keeps working for the session without saving.
 
@@ -134,7 +135,7 @@ claude plugin marketplace remove prompt-enhancer
 
 ```
 .claude-plugin/
-  plugin.json        manifest, the `model` setting
+  plugin.json        manifest, the two model settings
   marketplace.json   makes this repository installable
 hooks/
   hooks.json         names the hooks module
@@ -163,7 +164,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-The two system prompts in `hooks/llm.ts` were tested against a fixed set of rough prompts, including a non-English one. In a blind comparison they added no invented details, where a "add a goal, audience, format and done-criteria" style of rewriting added many. Treat changes to them as behaviour changes and test them the same way.
+The two system prompts in `hooks/llm.ts` were tested against a fixed set of 17 rough prompts, including a non-English one, with a blind judge. The default pairing (questions on Haiku, rewrite on Sonnet) left almost no spelling or grammar errors, asked no needless questions, and added no requirements; its only slips were two small paraphrases that put obvious meaning into words. An "add a goal, audience, format and done-criteria" style of rewriting invented many details by comparison. Treat changes to the prompts as behaviour changes and test them the same way.
 
 To release a change, raise `version` in `.claude-plugin/plugin.json`. Installed copies stay on the version they have until it changes.
 

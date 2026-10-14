@@ -20,6 +20,9 @@ import { AMBER, fit, GOLD, GREEN, HEADING, INK, LINE, MUTED, oneLine, OUTCOME, S
 
 type $ = EngineInterface
 
+/** Which model asks the questions and which writes the rewrite. */
+type Models = { questions: string; rewrite: string }
+
 const PANE = 'prompt-enhancer'
 const TITLE = 'Prompt Enhancer'
 const HISTORY_SIZE = 20
@@ -128,7 +131,7 @@ async function startCompose($: $): Promise<void> {
   await setFlow($, () => ({ ...blankFlow('', 'command'), step: 'compose' }))
 }
 
-async function startFlow($: $, original: string, source: Flow['source'], model: string): Promise<void> {
+async function startFlow($: $, original: string, source: Flow['source'], model: Models): Promise<void> {
   const flow = blankFlow(original, source)
 
   await update($, viewAtom, () => 'flow' as View)
@@ -137,7 +140,7 @@ async function startFlow($: $, original: string, source: Flow['source'], model: 
 }
 
 /** Runs the pending model call outside the dispatch that asked for it, so commands and presses answer at once. */
-function schedule($: $, model: string): void {
+function schedule($: $, model: Models): void {
   $.clock.after(0, () => {
     runPending($, model).catch(() => undefined)
   })
@@ -176,7 +179,7 @@ const answeredPairs = (flow: Pick<Flow, 'questions' | 'answers'>): AnsweredPair[
     return typeof answer === 'string' && answer.trim() !== '' ? [{ question: q.question, answer: answer.trim() }] : []
   })
 
-async function runPending($: $, model: string): Promise<void> {
+async function runPending($: $, model: Models): Promise<void> {
   const flow = await read($, flowAtom)
 
   if (flow === null || flow.pending === null) {
@@ -190,7 +193,7 @@ async function runPending($: $, model: string): Promise<void> {
 
   try {
     if (kind === 'questions') {
-      const result = await ask<Question[]>($, model, QUESTIONS_SYSTEM, questionsMessage(flow.original), parseQuestions, controller.signal)
+      const result = await ask<Question[]>($, model.questions, QUESTIONS_SYSTEM, questionsMessage(flow.original), parseQuestions, controller.signal)
 
       if (result.ok && result.value.length === 0) {
         // Nothing worth asking: straight on to the rewrite.
@@ -210,7 +213,7 @@ async function runPending($: $, model: string): Promise<void> {
     }
 
     const pairs = answeredPairs(flow)
-    const result = await ask<Rewrite>($, model, REWRITE_SYSTEM, rewriteMessage(flow.original, pairs), parseRewrite, controller.signal)
+    const result = await ask<Rewrite>($, model.rewrite, REWRITE_SYSTEM, rewriteMessage(flow.original, pairs), parseRewrite, controller.signal)
 
     await settle($, flow.id, callId, f =>
       result.ok
@@ -235,7 +238,7 @@ function abortAll(): void {
 
 // ---- the person's moves ---------------------------------------------------
 
-async function answer($: $, index: number, value: string | null, model: string): Promise<void> {
+async function answer($: $, index: number, value: string | null, model: Models): Promise<void> {
   const flow = await setFlow($, f => {
     if (f === null || f.step !== 'questions') return f
     const answers = [...f.answers]
@@ -249,7 +252,7 @@ async function answer($: $, index: number, value: string | null, model: string):
   }
 }
 
-async function rewriteNow($: $, model: string): Promise<void> {
+async function rewriteNow($: $, model: Models): Promise<void> {
   await setFlow($, f =>
     f === null || (f.step !== 'questions' && f.step !== 'error')
       ? f
@@ -258,7 +261,7 @@ async function rewriteNow($: $, model: string): Promise<void> {
   schedule($, model)
 }
 
-async function retry($: $, model: string): Promise<void> {
+async function retry($: $, model: Models): Promise<void> {
   const flow = await read($, flowAtom)
 
   if (flow?.error?.retry === 'rewrite') {
@@ -391,7 +394,7 @@ const isClear = (flow: Flow) => flow.rewrite !== null && isUnchanged(flow.origin
 // ---- drawing ----------------------------------------------------------------
 
 /** Draws the pane. Reads state only; every change happens in a handler. */
-async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: string): Promise<RenderElement> {
+async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Models): Promise<RenderElement> {
   const ui = $.ui.resolve(e)
   const { Box, Text, Button } = ui
   const Input = 'Input' in ui ? ui.Input : undefined
@@ -754,7 +757,9 @@ function show($: EngineInterface): void {
 }
 
 export const register: Register = (on, options) => {
-  const model = options.model === 'sonnet' ? 'sonnet' : 'haiku'
+  const pick = (value: unknown, fallback: string) => (value === 'haiku' || value === 'sonnet' ? value : fallback)
+  // Tested pairing: Haiku asks fewer, better questions; Sonnet writes the cleanest faithful rewrite.
+  const model: Models = { questions: pick(options.questionsModel, 'haiku'), rewrite: pick(options.rewriteModel, 'sonnet') }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)

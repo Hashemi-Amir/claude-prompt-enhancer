@@ -57,6 +57,26 @@ describe('from /enhance to Run', () => {
     expect(world.closed).toContain(NAME)
   })
 
+  test('questions go to Haiku and the rewrite to Sonnet by default', async ($, on) => {
+    const { world, clock } = await begin($, on)
+
+    world.replies.push(NO_QUESTIONS, REWRITE)
+    await $.command.run(command(ROUGH))
+    await clock.settle()
+
+    expect(world.calls.map(c => c.model)).toEqual(['haiku', 'sonnet'])
+  })
+
+  test('the two models follow their settings', { options: { questionsModel: 'sonnet', rewriteModel: 'haiku' } }, async ($, on) => {
+    const { world, clock } = await begin($, on)
+
+    world.replies.push(NO_QUESTIONS, REWRITE)
+    await $.command.run(command(ROUGH))
+    await clock.settle()
+
+    expect(world.calls.map(c => c.model)).toEqual(['sonnet', 'haiku'])
+  })
+
   test('with no questions worth asking it goes straight to the rewrite', async ($, on) => {
     const { world, clock } = await begin($, on)
 
