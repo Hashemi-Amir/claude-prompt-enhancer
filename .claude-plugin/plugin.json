@@ -1,7 +1,7 @@
 {
   "name": "prompt-enhancer",
   "displayName": "Prompt Enhancer",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Sharpens a rough prompt before it is sent: asks a few quick questions when they help, rewrites it using only your words and answers, and waits for you to press Run.",
   "author": {
     "name": "Amir Hashemi",

@@ -16,6 +16,13 @@ const NO_QUESTIONS = '{"questions":[]}'
 const ENHANCED = 'Add dark mode to the whole app, with the switch on the settings page.'
 const REWRITE = JSON.stringify({ prompt: ENHANCED, changes: ['Worked in your answer: the whole app'] })
 
+/** The footer's mode labels, starting from an engine that shows `focus`. */
+async function modes($: Engine): Promise<readonly string[]> {
+  const drawn = await $.ui.render({ component: 'SessionMode', surface: 'terminal', requestId: 'modes', viewport: { columns: 180, rows: 48, isFullscreen: true }, props: { modes: ['focus'] } })
+
+  return textOf(drawn).split(' & ')
+}
+
 async function begin($: Engine, on: On, store: Record<string, unknown> = {}) {
   const world = worldOf(on)
 
@@ -299,7 +306,7 @@ describe('automatic mode', () => {
     const { world } = await begin($, on)
 
     await $.command.run(command('on'))
-    expect(world.statuses.at(-1)).toBe('Prompt Enhancer: auto')
+    expect(await modes($)).toContain('prompt enhancer: auto')
 
     world.replies.push(ONE_QUESTION)
     const caught = await $.prompt.submit(typed(ROUGH))
@@ -311,16 +318,16 @@ describe('automatic mode', () => {
     await $.ui.render(pane())
     await $.ui.press({ plugin: NAME, key: 'cancel' })
     await $.command.run(command('off'))
-    expect(world.statuses.at(-1)).toBeUndefined()
+    expect(await modes($)).not.toContain('prompt enhancer: auto')
 
     await $.prompt.submit(typed(ROUGH))
     expect(world.sent).toEqual([{ text: ROUGH, origin: 'composer' }])
   })
 
   test('the switch is remembered across sessions', async ($, on) => {
-    const { world } = await begin($, on, { auto: true })
+    await begin($, on, { auto: true })
 
-    expect(world.statuses).toEqual(['Prompt Enhancer: auto'])
+    expect(await modes($)).toEqual(['focus', 'prompt enhancer: auto'])
     expect(await $.prompt.submit(typed(ROUGH))).toEqual({ drop: 'Opened in Prompt Enhancer.' })
   })
 

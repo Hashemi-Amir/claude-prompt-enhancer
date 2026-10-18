@@ -79,6 +79,8 @@ export function worldOf(on: On): World {
 
     return { value: undefined }
   })
+  // The engine's footer: hands back the mode labels it was asked to draw.
+  on('ui.render', { component: 'SessionMode' }, ($, e) => $.ui.resolve(e).Text({ children: e.props.modes.join(' & ') }))
   on('ui.status', ($, e) => {
     world.statuses.push(e.text)
 

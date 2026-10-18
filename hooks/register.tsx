@@ -24,6 +24,7 @@ const PANE = 'prompt-enhancer'
 const TITLE = 'Prompt Enhancer'
 const HISTORY_SIZE = 20
 const TIMEOUT_MS = 60_000
+const AUTO_LABEL = 'prompt enhancer: auto'
 
 const flowAtom = atom({ plugin: 'prompt-enhancer', key: 'flow' } as const, null)
 const viewAtom = atom({ plugin: 'prompt-enhancer', key: 'view' } as const, 'flow')
@@ -382,7 +383,6 @@ async function reopen($: $, entry: HistoryEntry): Promise<void> {
 async function setAuto($: $, isOn: boolean): Promise<void> {
   await update($, autoAtom, () => isOn)
   await save($, 'auto', isOn)
-  $.ui.status(isOn ? 'Prompt Enhancer: auto' : undefined)
 }
 
 async function clearHistory($: $): Promise<void> {
@@ -929,11 +929,9 @@ export const register: Register = (on, options) => {
       argumentHint: '[prompt | on | off | history | settings | cancel]',
     })
 
-    const isAuto = await restore($)
-
-    if (isAuto) {
-      $.ui.status('Prompt Enhancer: auto')
-    }
+    await restore($)
+    // Versions before 0.5.1 pinned automatic mode as a status notice; the footer label replaces it.
+    $.ui.status(undefined)
 
     // A reload mid-step: bring the pane back and restart the call it was waiting on.
     const flow = await getFlow($)
@@ -1076,4 +1074,9 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: 'prompt-enhancer' }, ($, e) => renderPane($, e, model))
+
+  // Automatic mode is a mode of the prompt, so it shows among the footer's mode labels.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) =>
+    (await getAuto($)) ? next({ ...e, props: { ...e.props, modes: [...e.props.modes, AUTO_LABEL] } }) : next(e),
+  )
 }

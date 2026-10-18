@@ -90,7 +90,7 @@ If a model call fails, your prompt is safe. You get **Try again**, **Send origin
 
 ### Automatic mode
 
-With `/enhance on`, a prompt you type opens in the pane instead of being sent. These always go straight through untouched:
+With `/enhance on`, a prompt you type opens in the pane instead of being sent, and `prompt enhancer: auto` shows among the mode labels at the right of the prompt footer. These always go straight through untouched:
 
 - slash commands;
 - anything typed while Claude is working;
