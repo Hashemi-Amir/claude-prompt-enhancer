@@ -35,7 +35,12 @@ export type HistoryEntry = {
   outcome: 'sent-rewrite' | 'sent-original' | 'cancelled'
 }
 
-export type View = 'flow' | 'history'
+export type View = 'flow' | 'history' | 'settings'
+
+export type Model = 'haiku' | 'sonnet' | 'opus'
+
+/** Which model asks the questions and which writes the rewrite. */
+export type Models = { questions: Model; rewrite: Model }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -44,6 +49,8 @@ declare module 'claude-code' {
       view: View
       history: HistoryEntry[]
       auto: boolean
+      /** The view the settings screen goes back to on Done. */
+      settingsReturn: View
     }
   }
 }

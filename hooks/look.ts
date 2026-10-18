@@ -1,14 +1,10 @@
 import type { Flow, HistoryEntry } from '../types'
 
-export const GOLD = '#F2C46D'
-export const LINE = '#262B33'
-export const MUTED = '#7D8590'
-export const TEXT = '#E6EDF3'
-export const GREEN = '#3DD68C'
-export const AMBER = '#E3B341'
-export const INK = '#0D1117'
+// One accent for frames, titles and the current step. Everything else is plain or dim, so it follows the terminal's theme.
+export const ACCENT = '#ffa116'
+export const PASS = '#2cbb5d'
+export const FAIL = '#ef4743'
 
-export const HEADING = 'PROMPT ENHANCER'
 export const STEPS = ['Your prompt', 'Questions', 'Rewrite', 'Review'] as const
 export const SIDE_BY_SIDE_MIN = 100
 
@@ -38,8 +34,8 @@ export function when(at: number): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export const OUTCOME: Record<HistoryEntry['outcome'], string> = {
-  'sent-rewrite': 'sent rewrite',
-  'sent-original': 'sent original',
-  cancelled: 'cancelled',
+export const OUTCOME: Record<HistoryEntry['outcome'], { label: string; mark: string }> = {
+  'sent-rewrite': { label: 'sent rewrite', mark: '✓' },
+  'sent-original': { label: 'sent original', mark: '↩' },
+  cancelled: { label: 'cancelled', mark: '·' },
 }

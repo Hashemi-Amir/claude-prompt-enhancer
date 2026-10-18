@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement, RenderInput, RenderSurface } from 'claude-code'
 
-import type { Flow, HistoryEntry, Question, Rewrite, View } from '../types'
+import type { Flow, HistoryEntry, Model, Models, Question, Rewrite, View } from '../types'
 import { notFromYou } from './check'
 import { decide } from './intercept'
 import {
@@ -14,14 +14,11 @@ import {
   rewriteMessage,
   type AnsweredPair,
 } from './llm'
-import { AMBER, fit, GOLD, GREEN, HEADING, INK, LINE, MUTED, oneLine, OUTCOME, SIDE_BY_SIDE_MIN, stepIndex, STEPS, TEXT, when } from './look'
+import { ACCENT, FAIL, fit, oneLine, OUTCOME, PASS, SIDE_BY_SIDE_MIN, stepIndex, STEPS, when } from './look'
 
 // Every function that takes $ lives in this file: Claude Code 2.1.295 follows $ only into functions declared beside the hook, never across an import.
 
 type $ = EngineInterface
-
-/** Which model asks the questions and which writes the rewrite. */
-type Models = { questions: string; rewrite: string }
 
 const PANE = 'prompt-enhancer'
 const TITLE = 'Prompt Enhancer'
@@ -32,6 +29,10 @@ const flowAtom = atom({ plugin: 'prompt-enhancer', key: 'flow' } as const, null)
 const viewAtom = atom({ plugin: 'prompt-enhancer', key: 'view' } as const, 'flow')
 const historyAtom = atom({ plugin: 'prompt-enhancer', key: 'history' } as const, [])
 const autoAtom = atom({ plugin: 'prompt-enhancer', key: 'auto' } as const, false)
+const settingsReturnAtom = atom({ plugin: 'prompt-enhancer', key: 'settingsReturn' } as const, 'flow')
+
+const MODELS: Model[] = ['haiku', 'sonnet', 'opus']
+const isModel = (value: unknown): value is Model => MODELS.includes(value as Model)
 
 // In-flight calls by callId, so Cancel can abort them. Lost on reload, which is fine: the call is gone too.
 const controllers = new Map<string, AbortController>()
@@ -102,7 +103,6 @@ async function save($: $, key: string, value: unknown): Promise<void> {
 async function restore($: $): Promise<boolean> {
   const isAuto = (await load($, 'auto')) === true
   const stored = await load($, 'history')
-
   await update($, autoAtom, () => isAuto)
   await update($, historyAtom, () => (Array.isArray(stored) ? (stored as HistoryEntry[]) : []))
 
@@ -389,159 +389,299 @@ async function clearHistory($: $): Promise<void> {
   await save($, 'history', [])
 }
 
+async function openSettings($: $): Promise<void> {
+  const view = await getView($)
+
+  if (view !== 'settings') await update($, settingsReturnAtom, () => view)
+  await update($, viewAtom, () => 'settings' as View)
+}
+
+async function closeSettings($: $): Promise<void> {
+  const settingsReturn = await read($, settingsReturnAtom)
+
+  if (settingsReturn === 'flow' && (await getFlow($)) === null) {
+    await update($, viewAtom, () => 'flow' as View)
+    await $.ui.close({ id: PANE })
+
+    return
+  }
+
+  await update($, viewAtom, () => settingsReturn)
+}
+
+const CONFIG_KEY: Record<keyof Models, string> = { questions: 'prompt-enhancer.questionsModel', rewrite: 'prompt-enhancer.rewriteModel' }
+
+// The pane writes the /config row itself, so the two can never disagree; the engine then reloads this module with the new options.
+async function setModel($: $, step: keyof Models, value: Model): Promise<void> {
+  const r = await $.config.set({ key: CONFIG_KEY[step], value }).catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error) }))
+
+  if (r.deny !== undefined) $.ui.toast(`Prompt Enhancer could not change the model: ${r.deny}`)
+}
+
 const isClear = (flow: Flow) => flow.rewrite !== null && isUnchanged(flow.original, flow.rewrite.prompt)
 
 // ---- drawing ----------------------------------------------------------------
+
+const MODEL_NAME: Record<Model, string> = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' }
+const MODEL_NOTE: Record<Model, string> = {
+  haiku: 'fastest, and stays closest to your exact words',
+  sonnet: 'fixes grammar and reads most naturally',
+  opus: 'the most careful, and the slowest',
+}
 
 /** Draws the pane. Reads state only; every change happens in a handler. */
 async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Models): Promise<RenderElement> {
   const ui = $.ui.resolve(e)
   const { Box, Text, Button } = ui
   const Input = 'Input' in ui ? ui.Input : undefined
-  const cols = Math.max(20, e.props.bodyColumns)
+  const padX = e.props.bodyColumns >= 60 ? 2 : 1
+  // Everything below lays out in the frame's inner width, inside the padding.
+  const cols = Math.max(20, e.props.bodyColumns - padX * 2)
   const surface = e.surface
 
   const flow = await getFlow($)
   const view = await getView($)
 
-  // ---- pieces ----
+  // ---- the page kit: a heading row, then sections under a ruled label ----
 
-  const header = (
-    <Box flexDirection="column" marginBottom={1}>
-      <Text bold color={TEXT}>
-        {HEADING}
+  const rule = (left: string, right = '') => {
+    const room = cols - left.length - (left ? 1 : 0)
+    const tail = right && room - right.length - 3 >= 4 ? right : ''
+    const fill = Math.max(2, room - (tail ? tail.length + 3 : 0))
+
+    return { tail, fill: '─'.repeat(fill) }
+  }
+
+  const section = (title: string, hint = '') => {
+    const r = rule(title, hint)
+
+    return (
+      <Text wrap="truncate-end">
+        <Text bold dimColor>
+          {title}
+        </Text>
+        <Text dimColor>{` ${r.fill}`}</Text>
+        {r.tail ? <Text dimColor italic>{` ${r.tail} ─`}</Text> : null}
       </Text>
-      <Text>
-        <Text color={GOLD}>{'━'.repeat(Math.min(HEADING.length, cols))}</Text>
-        <Text color={LINE}>{'─'.repeat(Math.max(0, cols - HEADING.length))}</Text>
-      </Text>
+    )
+  }
+
+  const pageHead = (title: string, right: RenderElement | null = null) => (
+    <Box flexDirection="row" justifyContent="space-between" flexWrap="wrap" columnGap={2}>
+      <Text bold color={ACCENT} wrap="truncate-end">{`◆ ${title}`}</Text>
+      {right}
     </Box>
   )
 
-  const heading = (label: string) => (
-    <Text>
-      <Text color={MUTED} bold>
-        {label.toUpperCase()}
-      </Text>
-      <Text color={LINE}> {'─'.repeat(Math.max(0, cols - label.length - 1))}</Text>
-    </Text>
-  )
-
-  const primary = (key: string, label: string, onPress: () => unknown, hotkey?: string) => (
-    <Button key={key} plain hotkey={hotkey} onPress={() => void onPress()}>
-      <Text backgroundColor={GOLD} color={INK} bold>{` ${label} `}</Text>
-    </Button>
-  )
-
-  const secondary = (key: string, label: string, onPress: () => unknown, hotkey?: string) => (
-    <Button key={key} plain hotkey={hotkey} onPress={() => void onPress()}>
-      <Text backgroundColor={LINE} color={TEXT}>{` ${label} `}</Text>
-    </Button>
+  const action = (key: string, label: string, onPress: () => unknown, hotkey?: string, isMain = false) => (
+    <Button key={key} plain label={label} hotkey={hotkey} {...(isMain ? { variant: 'primary' as const } : {})} onPress={() => void onPress()} />
   )
 
   const quiet = (key: string, label: string, onPress: () => unknown, hotkey?: string) => (
+    <Button key={key} plain dimColor label={label} hotkey={hotkey} onPress={() => void onPress()} />
+  )
+
+  const chip = (key: string, label: string, isOn: boolean, onPress: () => unknown, hotkey?: string) => (
     <Button key={key} plain hotkey={hotkey} onPress={() => void onPress()}>
-      <Text color={MUTED}>{label}</Text>
+      {isOn ? <Text inverse bold color={ACCENT}>{` ${label} `}</Text> : <Text dimColor>{` ${label} `}</Text>}
     </Button>
   )
 
-  const row = (...children: RenderElement[]) => (
-    <Box flexDirection="row" flexWrap="wrap" columnGap={1} rowGap={0}>
-      {children}
+  const row = (...children: (RenderElement | null)[]) => (
+    <Box flexDirection="row" flexWrap="wrap" columnGap={3}>
+      {children.filter((c): c is RenderElement => c !== null)}
     </Box>
   )
 
-  const card = (label: string, text: string, width: number | string, isGold = false) => (
-    <Box flexDirection="column" borderStyle="round" borderColor={isGold ? GOLD : LINE} paddingX={1} width={width}>
-      <Text color={isGold ? GOLD : MUTED} bold>
-        {label.toUpperCase()}
+  const card = (label: string, text: string, width: number | string, isAccent = false) => (
+    <Box flexDirection="column" borderStyle="round" {...(isAccent ? { borderColor: ACCENT } : { borderDimColor: true })} paddingX={padX} width={width}>
+      <Text bold {...(isAccent ? { color: ACCENT } : { dimColor: true })}>
+        {label}
       </Text>
-      <Text color={TEXT}>{text}</Text>
+      <Text>{text}</Text>
     </Box>
   )
 
   const cancelButton = () => quiet('cancel', 'Cancel', () => cancel($, { isClosed: false }), 'x')
 
-  const tracker = (current: number) => {
-    const isCompact = cols < 58
+  // ---- the frame: header with the Settings button, the body, a footer of keys ----
 
-    if (isCompact) {
-      return (
-        <Text>
-          <Text color={MUTED}>{`Step ${current + 1} of ${STEPS.length}  `}</Text>
-          <Text color={GOLD} bold>
-            {STEPS[current]}
-          </Text>
+  const isSettings = view === 'settings'
+  const current = view === 'flow' && flow !== null ? stepIndex(flow) : null
+  const busy =
+    view !== 'flow' || flow === null
+      ? ''
+      : flow.step === 'reading'
+        ? `◌ reading with ${MODEL_NAME[model.questions]}`
+        : flow.step === 'rewriting'
+          ? `◌ rewriting with ${MODEL_NAME[model.rewrite]}`
+          : ''
+  const busyRule = rule('', busy)
+
+  const tracker = (at: number) =>
+    cols < 58 ? (
+      <Text>
+        <Text dimColor>{`Step ${at + 1} of ${STEPS.length}  `}</Text>
+        <Text bold color={ACCENT}>
+          {STEPS[at]}
         </Text>
+      </Text>
+    ) : (
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+        {STEPS.map((label, i) =>
+          i < at ? (
+            <Text key={`step-${i}`} color={PASS}>{`✓ ${label}`}</Text>
+          ) : i === at ? (
+            <Text key={`step-${i}`} inverse bold color={ACCENT}>{` ${i + 1} ${label} `}</Text>
+          ) : (
+            <Text key={`step-${i}`} dimColor>{`${i + 1} ${label}`}</Text>
+          ),
+        )}
+      </Box>
+    )
+
+  const header = (
+    <Box flexDirection="column" gap={1}>
+      <Box flexDirection="row" justifyContent="space-between" flexWrap="wrap" columnGap={2}>
+        <Text bold color={ACCENT}>
+          ◆ Prompt Enhancer
+        </Text>
+        <Box flexDirection="row" columnGap={2}>
+          {cols >= 72 ? (
+            <Text>
+              <Text dimColor>questions </Text>
+              <Text bold>{MODEL_NAME[model.questions]}</Text>
+              <Text dimColor>   rewrite </Text>
+              <Text bold>{MODEL_NAME[model.rewrite]}</Text>
+            </Text>
+          ) : null}
+          <Button key="settings" label={isSettings ? 'Close settings' : '⚙ Settings'} hotkey="m" onPress={() => void (isSettings ? closeSettings($) : openSettings($))} />
+        </Box>
+      </Box>
+      <Box flexDirection="column">
+        {current === null ? null : tracker(current)}
+        {/* Work in progress rides on the rule, so the page below never shifts. */}
+        <Text wrap="truncate-end">
+          <Text dimColor>{busyRule.fill}</Text>
+          {busyRule.tail ? <Text italic color={ACCENT}>{` ${busyRule.tail} `}</Text> : null}
+          {busyRule.tail ? <Text dimColor>─</Text> : null}
+        </Text>
+      </Box>
+    </Box>
+  )
+
+  const footer = (
+    <Box flexDirection="row" justifyContent="space-between" columnGap={2}>
+      {cols >= 64 ? <Text dimColor>Nothing is sent until you press Run</Text> : null}
+      <Text dimColor>Tab moves · Enter presses · Esc cancels</Text>
+    </Box>
+  )
+
+  // In the dock the page fills the frame, so the footer sits on its bottom edge.
+  const fill = e.props.placement === 'dock' ? { minHeight: e.props.scroll.bodyRows } : {}
+
+  const page = (...body: (RenderElement | null | false)[]) => (
+    <Box flexDirection="column" paddingX={padX} paddingY={1} {...fill}>
+      {header}
+      <Box flexDirection="column" flexGrow={1} marginTop={1} marginBottom={1} gap={1}>
+        {body.filter((b): b is RenderElement => b !== null && b !== false)}
+      </Box>
+      {footer}
+    </Box>
+  )
+
+  // ---- settings ----
+
+  if (isSettings) {
+    const picker = (step: keyof Models, label: string, hotkey: string) => {
+      const next = MODELS[(MODELS.indexOf(model[step]) + 1) % MODELS.length] ?? 'haiku'
+
+      return (
+        <Box key={`pick-${step}`} flexDirection="row" flexWrap="wrap" columnGap={1}>
+          {/* The label's hotkey steps to the next model. */}
+          <Button key={`${step}-step`} plain hotkey={hotkey} onPress={() => void setModel($, step, next)}>
+            <Text dimColor>{label.padEnd(10)}</Text>
+          </Button>
+          {MODELS.map(m => chip(`${step}-${m}`, model[step] === m ? `✓ ${MODEL_NAME[m]}` : MODEL_NAME[m], model[step] === m, () => setModel($, step, m)))}
+        </Box>
       )
     }
 
-    return (
-      <Text>
-        {STEPS.flatMap((label, i) => {
-          const part =
-            i < current ? (
-              <Text color={GREEN}>{`✓ ${label}`}</Text>
-            ) : i === current ? (
-              <Text color={GOLD} bold>{`${i + 1} ${label}`}</Text>
-            ) : (
-              <Text color={MUTED}>{`${i + 1} ${label}`}</Text>
-            )
-
-          return i === 0 ? [part] : [<Text color={LINE}>{'  ─  '}</Text>, part]
-        })}
-      </Text>
+    return page(
+      pageHead('Settings'),
+      <Box flexDirection="column" gap={1}>
+        {section('MODELS', 'saved in /config')}
+        <Box flexDirection="column">
+          {picker('questions', 'Questions', 'q')}
+          {picker('rewrite', 'Rewrite', 'w')}
+        </Box>
+        <Box flexDirection="column">
+          {MODELS.map(m => (
+            <Text key={`note-${m}`} wrap="truncate-end">
+              <Text bold>{MODEL_NAME[m].padEnd(8)}</Text>
+              <Text dimColor>{MODEL_NOTE[m]}</Text>
+            </Text>
+          ))}
+        </Box>
+        <Text dimColor italic>
+          These are the same settings as in /config: a change in either place shows in both.
+        </Text>
+      </Box>,
+      row(action('settings-done', 'Done', () => closeSettings($), 'd', true)),
     )
   }
-
-  const frame = (current: number | null, ...body: (RenderElement | null | false)[]) => (
-    <Box flexDirection="column" width={cols}>
-      {header}
-      {current === null ? null : tracker(current)}
-      {current === null ? null : <Text> </Text>}
-      {body.filter((b): b is RenderElement => b !== null && b !== false)}
-    </Box>
-  )
 
   // ---- history ----
 
   if (view === 'history') {
     const history = await getHistory($)
 
-    return frame(
-      null,
-      heading('History'),
+    return page(
+      pageHead('History', <Text dimColor>{`${history.length} of ${HISTORY_SIZE}`}</Text>),
       history.length === 0 ? (
-        <Text color={MUTED}>No enhanced prompts yet.</Text>
+        <Text dimColor italic>
+          No enhanced prompts yet.
+        </Text>
       ) : (
         <Box flexDirection="column">
-          {history.map(entry => (
-            <Button key={`h-${entry.id}`} plain onPress={() => void reopen($, entry)}>
-              <Text color={MUTED}>{`${when(entry.at)}  ${OUTCOME[entry.outcome].padEnd(13)} `}</Text>
-              <Text color={TEXT}>{fit(oneLine(entry.original), Math.max(8, cols - 34))}</Text>
-            </Button>
-          ))}
+          {history.map(entry => {
+            const outcome = OUTCOME[entry.outcome]
+
+            return (
+              <Button key={`h-${entry.id}`} plain onPress={() => void reopen($, entry)}>
+                <Text color={entry.outcome === 'sent-rewrite' ? PASS : undefined} dimColor={entry.outcome === 'cancelled'}>{`${outcome.mark} `}</Text>
+                <Text dimColor>{`${when(entry.at)}  `}</Text>
+                {fit(oneLine(entry.original), Math.max(8, cols - 34)).padEnd(Math.max(8, cols - 34))}
+                <Text dimColor>{`  ${outcome.label}`}</Text>
+              </Button>
+            )
+          })}
         </Box>
       ),
-      <Text> </Text>,
       row(quiet('close', 'Close', () => cancel($, { isClosed: false }), 'x')),
     )
   }
 
   if (flow === null) {
-    return frame(null, <Text color={MUTED}>Nothing to enhance right now. Type /enhance followed by a prompt.</Text>)
+    return page(
+      pageHead('Nothing to enhance'),
+      <Text dimColor italic>
+        Type /enhance followed by a prompt.
+      </Text>,
+    )
   }
 
-  const current = stepIndex(flow)
+  const promptCard = card('YOUR PROMPT', flow.original, cols)
 
   // ---- compose ----
 
   if (flow.step === 'compose') {
-    return frame(
-      current,
-      heading('Your prompt'),
+    return page(
+      pageHead('New prompt'),
       Input === undefined ? (
-        <Text color={MUTED}>This surface has no text field. Type /enhance followed by your prompt instead.</Text>
+        <Text dimColor italic>
+          This surface has no text field. Type /enhance followed by your prompt instead.
+        </Text>
       ) : (
         <Input
           key="compose"
@@ -553,7 +693,6 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
           }}
         />
       ),
-      <Text> </Text>,
       row(cancelButton()),
     )
   }
@@ -561,11 +700,12 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
   // ---- reading ----
 
   if (flow.step === 'reading') {
-    return frame(
-      current,
-      card('Your prompt', flow.original, cols),
-      <Text color={MUTED}>Reading your prompt and looking for gaps only you can fill.</Text>,
-      <Text> </Text>,
+    return page(
+      pageHead('Your prompt'),
+      promptCard,
+      <Text dimColor italic>
+        Looking for gaps only you can fill.
+      </Text>,
       row(cancelButton()),
     )
   }
@@ -573,17 +713,15 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
   // ---- error ----
 
   if (flow.step === 'error') {
-    return frame(
-      current,
-      <Box flexDirection="column" borderStyle="round" borderColor={AMBER} paddingX={1} width={cols}>
-        <Text color={TEXT} bold>
-          Your prompt is safe.
-        </Text>
-        <Text color={AMBER}>{flow.error?.message ?? 'Something went wrong.'}</Text>
+    return page(
+      pageHead('Something went wrong'),
+      <Box flexDirection="column" borderStyle="round" borderColor={FAIL} paddingX={padX} width={cols}>
+        <Text bold color={FAIL}>{`✗ ${flow.error?.message ?? 'Something went wrong.'}`}</Text>
+        <Text dimColor>Your prompt is safe.</Text>
       </Box>,
       row(
-        primary('retry', 'Try again', () => retry($, model), 't'),
-        secondary('original', 'Send original', () => send($, flow.original, 'sent-original'), 'o'),
+        action('retry', 'Try again', () => retry($, model), 't', true),
+        action('original', 'Send original', () => send($, flow.original, 'sent-original'), 'o'),
         cancelButton(),
       ),
     )
@@ -595,48 +733,38 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
     const done = flow.questions.filter((_, i) => flow.answers[i] !== undefined).length
     const firstOpen = flow.questions.findIndex((_, i) => flow.answers[i] === undefined)
 
-    return frame(
-      current,
-      card('Your prompt', flow.original, cols),
-      heading('Questions'),
-      <Text>
-        <Text color={TEXT}>{`${done} of ${flow.questions.length} answered  `}</Text>
-      </Text>,
+    return page(
+      pageHead('Questions', <Text dimColor>{`${done} of ${flow.questions.length} answered`}</Text>),
+      promptCard,
       ...flow.questions.map((q, i) => {
         const chosen = flow.answers[i]
         const isOpen = chosen === undefined
         const isFirstOpen = i === firstOpen
-        const badge =
-          chosen === undefined ? (
-            <Text backgroundColor={GOLD} color={INK} bold>{` ${i + 1} `}</Text>
-          ) : chosen === null ? (
-            <Text color={MUTED}>{' – '}</Text>
-          ) : (
-            <Text color={GREEN} bold>{' ✓ '}</Text>
-          )
+        const isTyped = typeof chosen === 'string' && !q.options.includes(chosen)
+        const badge = isOpen ? (
+          <Text bold color={ACCENT}>{`${i + 1}.`}</Text>
+        ) : chosen === null ? (
+          <Text dimColor>–</Text>
+        ) : (
+          <Text color={PASS}>✓</Text>
+        )
 
         return (
-          <Box key={`q-${i}`} flexDirection="column" marginTop={1}>
+          <Box key={`q-${i}`} flexDirection="column">
             <Text>
               {badge}
-              <Text color={TEXT}>{` ${q.question}`}</Text>
-              {chosen === null ? <Text color={MUTED}> (skipped)</Text> : null}
+              <Text bold={isOpen} dimColor={!isOpen}>{` ${q.question}`}</Text>
+              {chosen === null ? <Text dimColor italic> skipped</Text> : null}
             </Text>
-            <Box flexDirection="row" flexWrap="wrap" columnGap={1} paddingLeft={4}>
-              {q.options.map((option, j) =>
-                chosen === option
-                  ? primary(`a-${i}-${j}`, option, () => answer($, i, option, model))
-                  : secondary(`a-${i}-${j}`, option, () => answer($, i, option, model), isFirstOpen ? String(j + 1) : undefined),
-              )}
+            <Box flexDirection="row" flexWrap="wrap" columnGap={1} paddingLeft={3}>
+              {q.options.map((option, j) => chip(`a-${i}-${j}`, option, chosen === option, () => answer($, i, option, model), isFirstOpen ? String(j + 1) : undefined))}
               {Input === undefined
                 ? null
-                : typeof chosen === 'string' && !q.options.includes(chosen)
-                  ? primary(`other-${i}`, chosen, () => setFlow($, f => (f === null ? f : { ...f, otherOpen: i })))
-                  : secondary(`other-${i}`, 'Other (type it)', () => setFlow($, f => (f === null ? f : { ...f, otherOpen: i })), isFirstOpen ? 'o' : undefined)}
+                : chip(`other-${i}`, isTyped ? chosen : 'Other…', isTyped, () => setFlow($, f => (f === null ? f : { ...f, otherOpen: i })), isFirstOpen ? 'o' : undefined)}
               {isOpen ? quiet(`skip-${i}`, 'Skip', () => answer($, i, null, model), isFirstOpen ? 's' : undefined) : null}
             </Box>
             {Input !== undefined && flow.otherOpen === i ? (
-              <Box paddingLeft={4}>
+              <Box paddingLeft={3}>
                 <Input
                   key={`other-input-${i}`}
                   autoFocus
@@ -649,8 +777,7 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
           </Box>
         )
       }),
-      <Text> </Text>,
-      row(primary('rewrite-now', done === 0 ? 'Skip the questions, rewrite now' : 'Skip the rest, rewrite now', () => rewriteNow($, model), 'w'), cancelButton()),
+      row(action('rewrite-now', done === 0 ? 'Skip the questions, rewrite now' : 'Skip the rest, rewrite now', () => rewriteNow($, model), 'w', true), cancelButton()),
     )
   }
 
@@ -659,18 +786,24 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
   if (flow.step === 'rewriting') {
     const pairs = answeredPairs(flow)
 
-    return frame(
-      current,
-      card('Your prompt', flow.original, cols),
-      pairs.length === 0 ? null : heading('Your answers'),
-      ...pairs.map(p => (
-        <Text color={TEXT}>
-          <Text color={GREEN}>{'✓ '}</Text>
-          {fit(`${p.question} ${p.answer}`, cols - 2)}
-        </Text>
-      )),
-      <Text color={MUTED}>Writing the rewrite from your words and answers only.</Text>,
-      <Text> </Text>,
+    return page(
+      pageHead('Rewrite'),
+      promptCard,
+      pairs.length === 0 ? null : (
+        <Box flexDirection="column">
+          {section('YOUR ANSWERS', `${pairs.length}`)}
+          {pairs.map((p, i) => (
+            <Text key={`pair-${i}`} wrap="truncate-end">
+              <Text color={PASS}>✓ </Text>
+              <Text dimColor>{`${p.question} `}</Text>
+              {p.answer}
+            </Text>
+          ))}
+        </Box>
+      ),
+      <Text dimColor italic>
+        Writing the rewrite from your words and answers only.
+      </Text>,
       row(cancelButton()),
     )
   }
@@ -682,62 +815,61 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
   const asked = flow.questions.length
   const answered = answeredPairs(flow).length
   const clear = isClear(flow)
-  const stats = [
-    asked === 0 ? 'No questions needed' : `Questions answered ${answered} of ${asked}`,
-    `Changes ${changes.length}`,
-  ].join('  ·  ')
 
   if (flow.step === 'editing' && Input !== undefined) {
-    return frame(
-      current,
-      heading('Edit the rewrite'),
+    return page(
+      pageHead('Edit the rewrite'),
       <Input key="edit" autoFocus value={rewrite} submitLabel="run" onSubmit={value => void send($, value.trim() === '' ? rewrite : value.trim(), 'sent-rewrite')} />,
-      <Text color={MUTED}>Enter runs it.</Text>,
-      <Text> </Text>,
-      row(secondary('back', 'Back', () => setFlow($, f => (f === null ? f : { ...f, step: 'review' })), 'b'), cancelButton()),
+      <Text dimColor italic>
+        Enter runs it.
+      </Text>,
+      row(action('back', 'Back', () => setFlow($, f => (f === null ? f : { ...f, step: 'review' })), 'b'), cancelButton()),
     )
   }
 
+  const stats = [asked === 0 ? 'No questions needed' : `Questions answered ${answered} of ${asked}`, `Changes ${changes.length}`].join('  ·  ')
   const isWide = cols >= SIDE_BY_SIDE_MIN
   const half = Math.floor((cols - 1) / 2)
 
-  return frame(
-    current,
-    <Text color={TEXT}>{fit(stats, cols)}</Text>,
+  return page(
+    pageHead('Review', <Text dimColor>{stats}</Text>),
     clear ? (
-      <Text color={GREEN}>Your prompt is already clear.</Text>
+      <Text color={PASS}>✓ Your prompt is already clear.</Text>
     ) : flow.flags.length === 0 ? (
-      <Text color={GREEN}>Nothing new: every specific comes from your words or answers.</Text>
+      <Text color={PASS}>✓ Nothing new: every specific comes from your words or answers.</Text>
     ) : (
-      <Text color={AMBER}>{`Not from you, check before running: ${flow.flags.join(', ')}`}</Text>
+      <Text color={FAIL}>{`⚠ Not from you, check before running: ${flow.flags.join(', ')}`}</Text>
     ),
-    <Text> </Text>,
-    row(
-      clear ? secondary('run', 'Run it', () => send($, rewrite, 'sent-rewrite'), 'r') : primary('run', 'Run it', () => send($, rewrite, 'sent-rewrite'), 'r'),
-      ...(Input === undefined ? [] : [secondary('edit', 'Edit', () => setFlow($, f => (f === null ? f : { ...f, step: 'editing', note: null })), 'e')]),
-      secondary('copy', 'Copy', () => copy($, rewrite, surface), 'c'),
-      clear ? primary('original', 'Send original', () => send($, flow.original, 'sent-original'), 'o') : secondary('original', 'Send original', () => send($, flow.original, 'sent-original'), 'o'),
-      cancelButton(),
+    <Box flexDirection="column">
+      {row(
+        action('run', 'Run it', () => send($, rewrite, 'sent-rewrite'), 'r', !clear),
+        Input === undefined ? null : action('edit', 'Edit', () => setFlow($, f => (f === null ? f : { ...f, step: 'editing', note: null })), 'e'),
+        action('copy', 'Copy', () => copy($, rewrite, surface), 'c'),
+        action('original', 'Send original', () => send($, flow.original, 'sent-original'), 'o', clear),
+        cancelButton(),
+      )}
+      {flow.note === null ? null : <Text dimColor italic>{flow.note}</Text>}
+    </Box>,
+    changes.length === 0 ? null : (
+      <Box flexDirection="column">
+        {section('WHAT CHANGED', `${changes.length}`)}
+        {changes.slice(0, 8).map((change, i) => (
+          <Text key={`change-${i}`}>
+            <Text dimColor>· </Text>
+            {change}
+          </Text>
+        ))}
+      </Box>
     ),
-    flow.note === null ? null : <Text color={MUTED}>{flow.note}</Text>,
-    <Text> </Text>,
-    changes.length === 0 ? null : heading('What changed'),
-    ...changes.slice(0, 8).map(change => (
-      <Text color={TEXT}>
-        <Text color={MUTED}>{'· '}</Text>
-        {change}
-      </Text>
-    )),
-    changes.length === 0 ? null : <Text> </Text>,
     isWide ? (
       <Box flexDirection="row" columnGap={1} width={cols}>
-        {card('Your prompt', flow.original, half)}
-        {card('Enhanced', rewrite, half, true)}
+        {card('YOUR PROMPT', flow.original, half)}
+        {card('ENHANCED', rewrite, half, true)}
       </Box>
     ) : (
       <Box flexDirection="column" width={cols}>
-        {card('Your prompt', flow.original, cols)}
-        {card('Enhanced', rewrite, cols, true)}
+        {card('YOUR PROMPT', flow.original, cols)}
+        {card('ENHANCED', rewrite, cols, true)}
       </Box>
     ),
   )
@@ -757,9 +889,11 @@ function show($: EngineInterface): void {
 }
 
 export const register: Register = (on, options) => {
-  const pick = (value: unknown, fallback: string) => (value === 'haiku' || value === 'sonnet' ? value : fallback)
-  // Tested pairing: Haiku asks fewer, better questions; Sonnet writes the cleanest faithful rewrite.
-  const model: Models = { questions: pick(options.questionsModel, 'haiku'), rewrite: pick(options.rewriteModel, 'sonnet') }
+  // Tested pairing: Haiku asks fewer, better questions; Sonnet writes the cleanest faithful rewrite. The pane's Model settings override these per step.
+  const model: Models = {
+    questions: isModel(options.questionsModel) ? options.questionsModel : 'haiku',
+    rewrite: isModel(options.rewriteModel) ? options.rewriteModel : 'sonnet',
+  }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -767,7 +901,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'enhance',
       description: 'Sharpen a prompt before sending it, using only your words and answers',
-      argumentHint: '[prompt | on | off | history | cancel]',
+      argumentHint: '[prompt | on | off | history | settings | cancel]',
     })
 
     const isAuto = await restore($)
@@ -811,6 +945,13 @@ export const register: Register = (on, options) => {
       await cancel($, { isClosed: false })
 
       return { text: flow === null ? 'Prompt Enhancer had nothing open.' : 'Prompt Enhancer closed. Your original prompt is back in the box.' }
+    }
+
+    if (word === 'settings') {
+      await openSettings($)
+      show($)
+
+      return { text: 'Pick the models in the Prompt Enhancer pane.' }
     }
 
     if (word === 'history clear') {

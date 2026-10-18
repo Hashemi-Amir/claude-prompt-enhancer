@@ -49,6 +49,11 @@ export type World = {
   /** Replies the fake model gives, in order; a string is a text reply, `null` an API error. */
   replies: (string | null)[]
   unplaced: boolean
+  /** Every /config row written, in order. */
+  configs: { key: string; value: unknown }[]
+  /** When set, /config refuses every write with this reason. */
+  configDeny: string | null
+  toasts: string[]
   /** The prompt box's draft, as Claude Code holds it. */
   box: string
 }
@@ -57,7 +62,7 @@ const USAGE = { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 
 
 /** The engine beneath the plugin, in memory. */
 export function worldOf(on: On): World {
-  const world: World = { opened: [], closed: [], fills: [], sent: [], statuses: [], logs: [], copies: [], commands: [], calls: [], replies: [], unplaced: false, box: '' }
+  const world: World = { opened: [], closed: [], fills: [], sent: [], statuses: [], logs: [], copies: [], commands: [], calls: [], replies: [], unplaced: false, box: '', configs: [], configDeny: null, toasts: [] }
 
   on('command.register', ($, e) => {
     world.commands.push(e.name)
@@ -76,6 +81,17 @@ export function worldOf(on: On): World {
   })
   on('ui.status', ($, e) => {
     world.statuses.push(e.text)
+
+    return { value: undefined }
+  })
+  on('config.set', ($, e) => {
+    if (world.configDeny !== null) return { deny: world.configDeny }
+    world.configs.push({ key: e.key, value: e.value })
+
+    return { value: e.value }
+  })
+  on('ui.toast', ($, e) => {
+    world.toasts.push(e.text)
 
     return { value: undefined }
   })

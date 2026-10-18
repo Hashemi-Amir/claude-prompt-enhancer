@@ -76,7 +76,6 @@ describe('from /enhance to Run', () => {
 
     expect(world.calls.map(c => c.model)).toEqual(['sonnet', 'haiku'])
   })
-
   test('with no questions worth asking it goes straight to the rewrite', async ($, on) => {
     const { world, clock } = await begin($, on)
 
@@ -146,6 +145,83 @@ describe('from /enhance to Run', () => {
     await $.ui.input({ plugin: NAME, key: 'edit', text: 'Add dark mode everywhere.' })
 
     expect(world.sent).toEqual([{ text: 'Add dark mode everywhere.', origin: 'plugin' }])
+  })
+})
+
+describe('model settings in the pane', () => {
+  test('a pick in the pane writes the /config row itself, and Done closes when nothing is open', async ($, on) => {
+    const { world } = await begin($, on)
+
+    await $.command.run(command('settings'))
+    const text = textOf(await $.ui.render(pane()))
+
+    expect(text).toContain('◆ Settings')
+    expect(text).toContain('✓ Haiku')
+    expect(text).toContain('✓ Sonnet')
+
+    await $.ui.press({ plugin: NAME, key: 'rewrite-haiku' })
+    await $.ui.render(pane())
+    await $.ui.press({ plugin: NAME, key: 'questions-opus' })
+
+    expect(world.configs).toEqual([
+      { key: 'prompt-enhancer.rewriteModel', value: 'haiku' },
+      { key: 'prompt-enhancer.questionsModel', value: 'opus' },
+    ])
+
+    await $.ui.render(pane())
+    await $.ui.press({ plugin: NAME, key: 'settings-done' })
+    expect(world.closed).toContain(NAME)
+  })
+
+  test('the pane shows what /config holds, Opus included, and the calls use it', { options: { questionsModel: 'opus', rewriteModel: 'opus' } }, async ($, on) => {
+    const { world, clock } = await begin($, on)
+
+    await $.command.run(command('settings'))
+    const text = textOf(await $.ui.render(pane()))
+
+    expect(text).toContain('✓ Opus')
+    expect(text).not.toContain('✓ Haiku')
+
+    world.replies.push(NO_QUESTIONS, REWRITE)
+    await $.command.run(command(ROUGH))
+    await clock.settle()
+
+    expect(world.calls.map(c => c.model)).toEqual(['opus', 'opus'])
+  })
+
+  test('a refused /config write says so and changes nothing', async ($, on) => {
+    const { world } = await begin($, on)
+
+    world.configDeny = 'managed by your organization'
+    await $.command.run(command('settings'))
+    await $.ui.render(pane())
+    await $.ui.press({ plugin: NAME, key: 'rewrite-opus' })
+
+    expect(world.configs).toEqual([])
+    expect(world.toasts.at(-1)).toContain('managed by your organization')
+  })
+
+  test('the header button opens and closes the settings, back to the compose box', async ($, on) => {
+    await begin($, on)
+
+    await $.command.run(command(''))
+    await $.ui.render(pane())
+    await $.ui.press({ plugin: NAME, key: 'settings' })
+    expect(textOf(await $.ui.render(pane()))).toContain('Close settings')
+
+    await $.ui.press({ plugin: NAME, key: 'settings' })
+    expect(keysOf(await $.ui.render(pane()), 'Input')).toEqual(['compose'])
+  })
+
+  test('opened from the history, Done goes back to it', async ($, on) => {
+    await begin($, on)
+
+    await $.command.run(command('history'))
+    await $.ui.render(pane())
+    await $.ui.press({ plugin: NAME, key: 'settings' })
+    await $.ui.render(pane())
+    await $.ui.press({ plugin: NAME, key: 'settings-done' })
+    expect(textOf(await $.ui.render(pane()))).toContain('◆ History')
   })
 })
 
@@ -350,8 +426,8 @@ describe('drawing', () => {
 
       expect(textOf(wide)).toContain('✓ Your prompt')
       expect(textOf(wide)).toContain('4 Review')
-      expect(keysOf(wide, 'Button').slice(0, 5)).toEqual(['run', 'edit', 'copy', 'original', 'cancel'])
-      expect(textOf(narrow)).toContain('PROMPT ENHANCER')
+      expect(keysOf(wide, 'Button').slice(0, 6)).toEqual(['settings', 'run', 'edit', 'copy', 'original', 'cancel'])
+      expect(textOf(narrow)).toContain('◆ Prompt Enhancer')
       expect(textOf(narrow)).toContain(ENHANCED)
     }
 
@@ -372,7 +448,7 @@ describe('drawing', () => {
 })
 
 describe('every screen validates on each surface', () => {
-  test('compose, questions, review, edit, error and history mount on terminal and desktop', async ($, on) => {
+  test('compose, questions, review, edit, error, history and settings mount on terminal and desktop', async ($, on) => {
     const { world, clock } = await begin($, on)
     const screens: string[] = []
 
@@ -424,7 +500,10 @@ describe('every screen validates on each surface', () => {
     await $.command.run(command('history'))
     await mountAll('history')
 
-    expect(screens).toEqual(['compose', 'questions', 'questions with Other open', 'review', 'edit', 'error', 'history'])
+    await $.command.run(command('settings'))
+    await mountAll('settings')
+
+    expect(screens).toEqual(['compose', 'questions', 'questions with Other open', 'review', 'edit', 'error', 'history', 'settings'])
   })
 })
 

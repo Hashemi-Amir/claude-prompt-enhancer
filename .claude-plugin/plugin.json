@@ -1,7 +1,7 @@
 {
   "name": "prompt-enhancer",
   "displayName": "Prompt Enhancer",
-  "version": "0.2.0",
+  "version": "0.4.1",
   "description": "Sharpens a rough prompt before it is sent: asks a few quick questions when they help, rewrites it using only your words and answers, and waits for you to press Run.",
   "author": {
     "name": "Amir Hashemi",
@@ -22,21 +22,23 @@
     "questionsModel": {
       "type": "string",
       "title": "Questions model",
-      "description": "The model that decides whether to ask and writes the questions. haiku asks fewer, better-aimed questions; sonnet asks more.",
+      "description": "The model that decides whether to ask and writes the questions. haiku asks fewer, better-aimed questions; sonnet asks more; opus is the most careful and the slowest. The pane's Settings change this same value.",
       "default": "haiku",
       "options": [
         "haiku",
-        "sonnet"
+        "sonnet",
+        "opus"
       ]
     },
     "rewriteModel": {
       "type": "string",
       "title": "Rewrite model",
-      "description": "The model that writes the rewrite. sonnet fixes grammar and reads most naturally; haiku is faster and stays closest to your exact words.",
+      "description": "The model that writes the rewrite. sonnet fixes grammar and reads most naturally; haiku is faster and stays closest to your exact words; opus is the most careful and the slowest. The pane's Settings change this same value.",
       "default": "sonnet",
       "options": [
         "sonnet",
-        "haiku"
+        "haiku",
+        "opus"
       ]
     }
   }

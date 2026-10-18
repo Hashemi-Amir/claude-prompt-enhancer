@@ -67,6 +67,7 @@ To check it loaded, run `claude plugin list`; you should see `prompt-enhancer@pr
 | `/enhance on` / `/enhance off` | Turn automatic mode on or off; it's remembered across sessions and starts off |
 | `/enhance history` | Your last 20 enhanced prompts; pick one to reopen its review |
 | `/enhance history clear` | Empty the history |
+| `/enhance settings` | Open the pane's Settings: which model asks the questions and which writes the rewrite |
 | `/enhance cancel` | Close whatever is open in the pane and put your original prompt back |
 
 ### In the pane
@@ -80,6 +81,8 @@ To check it loaded, run `claude plugin list`; you should see `prompt-enhancer@pr
    - **Copy** copies the rewrite.
    - **Send original** sends exactly what you typed.
    - **Cancel** (or Esc) closes the pane and puts your original back in the prompt box.
+
+The **⚙ Settings** button sits in the pane's header on every screen (key `m`); see [Settings](#settings).
 
 Each button shows its key: `r` run, `e` edit, `c` copy, `o` send original, `x` cancel. Digits pick the options of the next open question.
 
@@ -102,10 +105,10 @@ Start a prompt with `>` to send it as typed; the `>` is removed.
 
 | Setting | Values | Default |
 | --- | --- | --- |
-| `questionsModel` | `haiku` asks fewer, better-aimed questions; `sonnet` asks more | `haiku` |
-| `rewriteModel` | `sonnet` fixes grammar and reads most naturally; `haiku` is faster and stays closest to your exact words | `sonnet` |
+| `questionsModel` | `haiku` asks fewer, better-aimed questions; `sonnet` asks more; `opus` is the most careful and the slowest | `haiku` |
+| `rewriteModel` | `sonnet` fixes grammar and reads most naturally; `haiku` is faster and stays closest to your exact words; `opus` is the most careful and the slowest | `sonnet` |
 
-Change them in `/config`, or with `/plugin configure prompt-enhancer@prompt-enhancer`.
+The quickest way to change them is in the pane: the **⚙ Settings** button in its header, or `/enhance settings`, shows a Haiku / Sonnet / Opus choice for each step. These are the same two settings as in `/config` (or `/plugin configure prompt-enhancer@prompt-enhancer`): a pick in the pane writes them there, so both places always show the same models.
 
 ## Cost and privacy
 
@@ -164,7 +167,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-The two system prompts in `hooks/llm.ts` were tested against a fixed set of 17 rough prompts, including a non-English one, with a blind judge. The default pairing (questions on Haiku, rewrite on Sonnet) left almost no spelling or grammar errors, asked no needless questions, and added no requirements; its only slips were two small paraphrases that put obvious meaning into words. An "add a goal, audience, format and done-criteria" style of rewriting invented many details by comparison. Treat changes to the prompts as behaviour changes and test them the same way.
+The two system prompts in `hooks/llm.ts` were tested against a fixed set of 17 rough prompts, including a non-English one, with a blind judge. The default pairing (questions on Haiku, rewrite on Sonnet) left almost no spelling or grammar errors, asked no needless questions, and added no requirements; its only slips were two small paraphrases that put obvious meaning into words. Opus, offered since 0.4, was not part of that evaluation. An "add a goal, audience, format and done-criteria" style of rewriting invented many details by comparison. Treat changes to the prompts as behaviour changes and test them the same way.
 
 To release a change, raise `version` in `.claude-plugin/plugin.json`. Installed copies stay on the version they have until it changes.
 
