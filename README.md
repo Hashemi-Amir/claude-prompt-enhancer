@@ -77,7 +77,7 @@ To check it loaded, run `claude plugin list`; you should see `prompt-enhancer@pr
 3. **Rewrite.** Your prompt is rewritten from your words and answers.
 4. **Review.** The buttons:
    - **Run it** sends the rewrite as your own message.
-   - **Edit** lets you change it first, and Enter runs it.
+   - **Edit** lets you change it first. In the terminal it opens a text area that wraps the whole rewrite, the cursor after the last word: click in it to type, Enter runs it, Shift+Enter adds a line, Esc leaves the box. **Run it** below the box sends what you typed. The desktop app uses its own text box.
    - **Copy** copies the rewrite.
    - **Send original** sends exactly what you typed.
    - **Cancel** (or Esc) closes the pane and puts your original back in the prompt box.
@@ -112,7 +112,7 @@ The quickest way to change them is in the pane: the **⚙ Settings** button in i
 
 ## Cost and privacy
 
-- Each enhancement makes up to two short model calls on your own Claude account: one for the questions (Haiku by default) and one for the rewrite (Sonnet by default). A reply that can't be read is retried once.
+- Each enhancement makes up to two short model calls on your own Claude account: one for the questions (Haiku by default) and one for the rewrite (Sonnet by default). A reply that can't be read is retried once, and a call that takes longer than a minute counts as failed (your prompt is kept).
 - The mod sees only the prompt you're enhancing, not your conversation or your files.
 - History stays on your machine, in the mod's own store under `~/.claude/plugins/store/`. `/enhance history clear` empties it. If that store can't be read or written, the mod says so once and keeps working for the session without saving.
 
@@ -148,6 +148,7 @@ hooks/
   check.ts           the "Not from you" check
   intercept.ts       which prompts automatic mode catches
   look.ts            colours and small drawing helpers
+  textarea.tsx       the terminal's edit box: wraps prose and keeps the whole text in view
 types/index.d.ts     the mod's state contract
 tests/               claude plugin test suites
 ```

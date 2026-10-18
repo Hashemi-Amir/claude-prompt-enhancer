@@ -23,7 +23,7 @@ type $ = EngineInterface
 const PANE = 'prompt-enhancer'
 const TITLE = 'Prompt Enhancer'
 const HISTORY_SIZE = 20
-const TIMEOUT_MS = 30_000
+const TIMEOUT_MS = 60_000
 
 const flowAtom = atom({ plugin: 'prompt-enhancer', key: 'flow' } as const, null)
 const viewAtom = atom({ plugin: 'prompt-enhancer', key: 'view' } as const, 'flow')
@@ -53,6 +53,7 @@ const blankFlow = (original: string, source: Flow['source']): Flow => ({
   error: null,
   pending: null,
   note: null,
+  draft: null,
 })
 
 function getFlow($: $): Promise<Flow | null> {
@@ -504,6 +505,13 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
 
   const cancelButton = () => quiet('cancel', 'Cancel', () => cancel($, { isClosed: false }), 'x')
 
+  // A one-row field cuts a long prompt off at the edge, so a field holding one is as tall as its text, within the pane.
+  const rowsFor = (text: string) => {
+    const lines = text.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / Math.max(10, cols - 8))), 0)
+
+    return Math.max(3, Math.min(lines, e.props.scroll.bodyRows - 14))
+  }
+
   // ---- the frame: header with the Settings button, the body, a footer of keys ----
 
   const isSettings = view === 'settings'
@@ -685,6 +693,7 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
       ) : (
         <Input
           key="compose"
+          rows={3}
           autoFocus
           placeholder="Type the prompt you want to enhance"
           submitLabel="enhance"
@@ -817,13 +826,29 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
   const clear = isClear(flow)
 
   if (flow.step === 'editing' && Input !== undefined) {
+    const draft = flow.draft ?? rewrite
+    const runDraft = (text: string) => send($, text.trim() === '' ? rewrite : text.trim(), 'sent-rewrite')
+    // Only the terminal hands a Client the keyboard; the desktop app's own text box wraps by itself.
+    const Client = surface === 'terminal' && 'Client' in ui ? ui.Client : undefined
+    const boxRows = rowsFor(draft)
+
     return page(
       pageHead('Edit the rewrite'),
-      <Input key="edit" autoFocus value={rewrite} submitLabel="run" onSubmit={value => void send($, value.trim() === '' ? rewrite : value.trim(), 'sent-rewrite')} />,
+      Client === undefined ? (
+        <Input key="edit" autoFocus value={draft} rows={boxRows} submitLabel="run" onSubmit={value => void runDraft(value)} />
+      ) : (
+        <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1} width={cols}>
+          <Client key="edit" module="./textarea.tsx" props={{ id: flow.id, text: draft, rows: boxRows, columns: cols - 4 }} height={boxRows} />
+        </Box>
+      ),
       <Text dimColor italic>
-        Enter runs it.
+        {Client === undefined ? 'Enter runs it.' : 'Click in the box to type · Enter runs it · Shift+Enter adds a line · Esc leaves the box'}
       </Text>,
-      row(action('back', 'Back', () => setFlow($, f => (f === null ? f : { ...f, step: 'review' })), 'b'), cancelButton()),
+      row(
+        action('run-edit', 'Run it', () => runDraft(draft), 'r', true),
+        action('back', 'Back', () => setFlow($, f => (f === null ? f : { ...f, step: 'review' })), 'b'),
+        cancelButton(),
+      ),
     )
   }
 
@@ -843,7 +868,7 @@ async function renderPane($: EngineInterface, e: RenderInput<'Pane'>, model: Mod
     <Box flexDirection="column">
       {row(
         action('run', 'Run it', () => send($, rewrite, 'sent-rewrite'), 'r', !clear),
-        Input === undefined ? null : action('edit', 'Edit', () => setFlow($, f => (f === null ? f : { ...f, step: 'editing', note: null })), 'e'),
+        Input === undefined ? null : action('edit', 'Edit', () => setFlow($, f => (f === null ? f : { ...f, step: 'editing', note: null, draft: f.rewrite?.prompt ?? f.original })), 'e'),
         action('copy', 'Copy', () => copy($, rewrite, surface), 'c'),
         action('original', 'Send original', () => send($, flow.original, 'sent-original'), 'o', clear),
         cancelButton(),
@@ -1023,6 +1048,22 @@ export const register: Register = (on, options) => {
     tidyAfterDrop($, e.text)
 
     return { drop: 'Opened in Prompt Enhancer.' }
+  }).catch(($, e, next) => next(e))
+
+  // The edit text area reports each change, so Run it sends what was typed; its Enter runs it.
+  on('ui.message', { requestId: PANE }, async ($, e, next) => {
+    const data = e.data as { id?: unknown; text?: unknown; action?: unknown } | null
+
+    if (!e.module.endsWith('textarea.tsx') || typeof data?.text !== 'string') return next(e)
+
+    const text = data.text
+    const flow = await setFlow($, f => (f === null || f.id !== data.id || f.step !== 'editing' ? f : { ...f, draft: text }))
+
+    if (data.action === 'run' && flow !== null && flow.id === data.id && flow.step === 'editing') {
+      await send($, text.trim() === '' ? (flow.rewrite?.prompt ?? flow.original) : text.trim(), 'sent-rewrite')
+    }
+
+    return {}
   }).catch(($, e, next) => next(e))
 
   // Closing the pane by hand (Esc, the close mark) is Cancel: the original goes back in the box.

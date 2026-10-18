@@ -22,6 +22,8 @@ export type Flow = {
   /** The model call this flow waits on; a reload that finds it set starts the call again. */
   pending: { kind: 'questions' | 'rewrite'; callId: string } | null
   note: string | null
+  /** The rewrite as edited so far, while the edit step is open. */
+  draft: string | null
 }
 
 export type HistoryEntry = {

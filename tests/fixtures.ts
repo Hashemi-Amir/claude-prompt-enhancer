@@ -155,6 +155,29 @@ export function stringsOf(node: RenderNode | RenderElement | null | undefined): 
 
 export const textOf = (node: RenderNode | RenderElement | null | undefined) => stringsOf(node).join('')
 
+/** The props of the Input with `key` in a drawn tree. */
+export function inputOf(node: RenderNode | RenderElement | null | undefined, key: string): { value?: string; rows?: number } | undefined {
+  if (node === null || node === undefined || typeof node !== 'object') {
+    return undefined
+  }
+
+  const props = (node as { props?: Record<string, unknown> }).props
+
+  if (node.type === 'Input' && props?.key === key) {
+    return props as { value?: string; rows?: number }
+  }
+
+  const children = (node as { children?: readonly RenderNode[] }).children ?? []
+
+  for (const child of children) {
+    const found = inputOf(child, key)
+
+    if (found !== undefined) return found
+  }
+
+  return undefined
+}
+
 /** The keys of every element of `type` in a drawn tree. */
 export function keysOf(node: RenderNode | RenderElement | null | undefined, type: string): string[] {
   if (node === null || node === undefined || typeof node !== 'object') {

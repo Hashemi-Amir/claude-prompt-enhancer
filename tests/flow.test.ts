@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { describe, expect, mock, test } from 'claude-code/testing'
 
-import { command, keysOf, NAME, pane, SESSION, textOf, typed, worldOf } from './fixtures'
+import { command, inputOf, keysOf, NAME, pane, SESSION, textOf, typed, worldOf } from './fixtures'
 
 const ROUGH = 'add dark mode to the settings page'
 const ONE_QUESTION = JSON.stringify({ questions: [{ question: 'What should dark mode cover?', options: ['Only the settings page', 'The whole app'] }] })
@@ -133,7 +133,34 @@ describe('from /enhance to Run', () => {
     expect(world.sent).toEqual([{ text: ROUGH, origin: 'plugin' }])
   })
 
-  test('Edit then Enter runs the edited text', async ($, on) => {
+  test('in the terminal, Edit is a text area that wraps the whole rewrite, cursor after the last word', async ($, on) => {
+    const { world, clock } = await begin($, on)
+    const long = Array.from({ length: 12 }, (_, i) => `Sentence number ${i + 1} of a long rewrite that runs well past one line.`).join(' ')
+
+    world.replies.push(NO_QUESTIONS, JSON.stringify({ prompt: long, changes: [] }))
+    await $.command.run(command(ROUGH))
+    await clock.settle()
+    await $.ui.render(pane())
+    await $.ui.press({ plugin: NAME, key: 'edit' })
+
+    const input = pane('terminal', 120)
+    const ui = await $.ui.mount({ plugin: NAME, surface: 'terminal', component: 'Pane', props: input.props, requestId: NAME, viewport: input.viewport })
+    const drawn = await ui.drawn({ in: 'edit' })
+    const rows = (await ui.findAll({ type: 'Text', in: 'edit' })).filter(t => t.text.trim() !== '' && t.props.inverse !== true)
+
+    // Every sentence is on screen, over several rows; the cursor is a blank cell after the last word.
+    expect(rows.length).toBeGreaterThan(3)
+    expect(textOf(drawn).replace(/\s+/g, ' ').trim()).toBe(long)
+    expect(rows.at(-1)?.text.trimEnd().endsWith('past one line.')).toBe(true)
+
+    await ui.key({ key: '!' })
+    await ui.key({ key: 'return' })
+
+    expect(world.sent).toEqual([{ text: `${long}!`, origin: 'plugin' }])
+    await ui.unmount()
+  })
+
+  test('Run it sends what was typed in the text area', async ($, on) => {
     const { world, clock } = await begin($, on)
 
     world.replies.push(NO_QUESTIONS, REWRITE)
@@ -141,7 +168,33 @@ describe('from /enhance to Run', () => {
     await clock.settle()
     await $.ui.render(pane())
     await $.ui.press({ plugin: NAME, key: 'edit' })
-    await $.ui.render(pane())
+
+    const input = pane('terminal', 120)
+    const ui = await $.ui.mount({ plugin: NAME, surface: 'terminal', component: 'Pane', props: input.props, requestId: NAME, viewport: input.viewport })
+
+    for (let i = 0; i < 'with the switch on the settings page.'.length; i++) await ui.key({ key: 'backspace' })
+    await ui.key({ key: 'w', ctrl: true })
+    for (const ch of 'in one switch.') await ui.key({ key: ch })
+    await ui.press({ key: 'run-edit' })
+
+    expect(world.sent).toEqual([{ text: 'Add dark mode to the whole app, in one switch.', origin: 'plugin' }])
+    await ui.unmount()
+  })
+
+  test('on the desktop, Edit is the native text box, and Enter runs the edited text', async ($, on) => {
+    const { world, clock } = await begin($, on)
+
+    world.replies.push(NO_QUESTIONS, REWRITE)
+    await $.command.run(command(ROUGH))
+    await clock.settle()
+    await $.ui.render(pane('desktop'))
+    await $.ui.press({ plugin: NAME, key: 'edit' })
+
+    const field = inputOf(await $.ui.render(pane('desktop')), 'edit')
+
+    expect(field?.value).toBe(ENHANCED)
+    expect(field?.rows).toBeGreaterThanOrEqual(3)
+
     await $.ui.input({ plugin: NAME, key: 'edit', text: 'Add dark mode everywhere.' })
 
     expect(world.sent).toEqual([{ text: 'Add dark mode everywhere.', origin: 'plugin' }])
